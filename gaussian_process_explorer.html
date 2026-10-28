@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gaussian Process Intuition Lab — Probabilistic Machine Learning</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#151e2e',
+                            900: '#0f172a',
+                            950: '#080d1a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styling for sleek sliders and scrollbars */
+        body {
+            background-color: #080d1a;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-runnable-track {
+            height: 6px;
+            border-radius: 999px;
+            background: #1e293b;
+            border: 1px solid #334155;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            border: 2px solid #0f172a;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+            transition: transform 0.15s ease, background-color 0.15s ease;
+        }
+        input[type="range"]:hover::-webkit-slider-thumb {
+            transform: scale(1.15);
+            background: #7dd3fc;
+        }
+        input[type="range"].noise-slider::-webkit-slider-thumb {
+            background: #f43f5e;
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.6);
+        }
+        input[type="range"].noise-slider:hover::-webkit-slider-thumb {
+            background: #fb7185;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        .math-symbol {
+            font-family: 'Times New Roman', Times, serif;
+            font-style: italic;
+        }
+        .glow-cyan {
+            box-shadow: 0 0 20px -3px rgba(56, 189, 248, 0.25);
+        }
+        .glow-rose {
+            box-shadow: 0 0 20px -3px rgba(244, 63, 94, 0.25);
+        }
+        canvas {
+            touch-action: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-sky-500/30 selection:text-sky-200">
+
+    <!-- Top Navigation & Pedagogical Mode Bar -->
+    <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-30">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <!-- Brand Title -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 via-indigo-500 to-rose-500 p-[1px] shadow-lg shadow-sky-500/10">
+                        <div class="w-full h-full bg-slate-950 rounded-[11px] flex items-center justify-center">
+                            <svg class="w-5 h-5 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M2 12C5 4 9 4 12 12C15 20 19 20 22 12" stroke-linecap="round"/>
+                                <path d="M2 12C5 9 9 9 12 12C15 15 19 15 22 12" stroke-opacity="0.4" stroke-dasharray="2 2"/>
+                                <circle cx="7" cy="7.5" r="2" fill="#f43f5e" stroke="none"/>
+                                <circle cx="17" cy="16.5" r="2" fill="#f43f5e" stroke="none"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">Gaussian Process Intuition Lab</h1>
+                            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono">
+                                f(x) ~ GP(m(x), k(x,x'))
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400">Interactive Function-Space Explorer: Prior, Exact Interpolation &amp; Noisy Regression</p>
+                    </div>
+                </div>
+                <button id="btnResetAll" class="lg:hidden px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+                    Reset Lab
+                </button>
+            </div>
+
+            <!-- 3 Explicit Exploration Modes (Pedagogical Tabs) -->
+            <div class="flex flex-wrap items-center gap-1.5 bg-slate-950/90 p-1.5 rounded-xl border border-slate-800">
+                <button id="tabPrior" onclick="setExplorationMode('prior')" class="mode-tab flex-1 sm:flex-initial flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200">
+                    <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                    <span>1. The GP Prior</span>
+                    <span class="hidden xl:inline text-[10px] font-normal opacity-75">(0 Points)</span>
+                </button>
+                <button id="tabNoiseFree" onclick="setExplorationMode('noisefree')" class="mode-tab flex-1 sm:flex-initial flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200">
+                    <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+                    <span>2. Noise-Free Observations</span>
+                    <span class="hidden xl:inline text-[10px] font-mono opacity-80">(σ_n = 0)</span>
+                </button>
+                <button id="tabNoisy" onclick="setExplorationMode('noisy')" class="mode-tab flex-1 sm:flex-initial flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200">
+                    <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                    <span>3. Noisy Observations</span>
+                    <span class="hidden xl:inline text-[10px] font-mono opacity-80">(σ_n &gt; 0)</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+        <!-- LEFT COLUMN: Main Interactive GP Canvas & Guided Walkthrough (8 cols on lg) -->
+        <div class="lg:col-span-8 flex flex-col gap-5">
+
+            <!-- Dynamic Mode Banner / Active Concept Explanation -->
+            <div id="modeBanner" class="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-850 border border-slate-800 p-4 sm:p-5 shadow-lg relative overflow-hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                    <div class="space-y-1.5 max-w-2xl">
+                        <div class="flex items-center gap-2">
+                            <span id="bannerBadge" class="px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-md bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                Mode 2: Exact Interpolation
+                            </span>
+                            <span id="bannerEquation" class="text-xs font-mono text-slate-400">
+                                y_i = f(x_i)
+                            </span>
+                        </div>
+                        <h2 id="bannerTitle" class="text-base sm:text-lg font-bold text-white">
+                            Noise-Free Observations: Pinched Uncertainty &amp; Exact Interpolation
+                        </h2>
+                        <p id="bannerDesc" class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                            When observations have zero noise (<span class="font-mono text-sky-300">σ_n = 0</span>), every observation acts as a strict mathematical pin. Notice how the shaded 95% confidence interval collapses completely to zero at each data point, and every random sample curve passes strictly through <span class="font-mono">(x_i, y_i)</span>!
+                        </p>
+                    </div>
+                    <!-- Quick Action Scenario Buttons -->
+                    <div class="flex sm:flex-col gap-2 shrink-0">
+                        <button onclick="triggerComparisonToggle()" id="btnQuickToggleNoise" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition flex items-center justify-center gap-2 shadow-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                            <span id="quickToggleText">Switch to Noisy (σ_n = 0.35)</span>
+                        </button>
+                        <button onclick="sampleFromTrueFunction()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center justify-center gap-1.5">
+                            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            <span>Sample 6 Points from True f(x)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive GP Function Space Plot Card -->
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 shadow-xl overflow-hidden flex flex-col">
+                <!-- Canvas Header Bar -->
+                <div class="px-4 py-3 bg-slate-950/60 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-4 h-0.5 bg-sky-400 inline-block rounded-full"></span>
+                            <span class="text-slate-300 font-medium">Posterior Mean <span class="font-mono text-sky-400">μ(x)</span></span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3.5 h-3 rounded-sm bg-sky-500/25 border border-sky-400/40 inline-block"></span>
+                            <span class="text-slate-300 font-medium">95% CI <span class="font-mono text-slate-400">μ(x) ± 1.96σ(x)</span></span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-4 h-0.5 bg-amber-400/80 inline-block rounded-full"></span>
+                            <span class="text-slate-300 font-medium">Sample Paths <span class="font-mono text-amber-300">f(x)</span></span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 border border-white inline-block"></span>
+                            <span class="text-slate-300 font-medium">Observed <span class="font-mono text-rose-300">(x_i, y_i)</span></span>
+                        </div>
+                        <div id="legendTrueFunc" class="hidden items-center gap-1.5">
+                            <span class="w-4 h-0.5 border-b-2 border-dashed border-emerald-400 inline-block"></span>
+                            <span class="text-emerald-300 font-medium">True <span class="font-mono">g(x)</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Canvas Toolbar -->
+                    <div class="flex items-center gap-2">
+                        <span id="pointCountBadge" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs border border-slate-700">
+                            N = 3 pts
+                        </span>
+                        <button onclick="clearAllPoints()" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 hover:border-rose-700/50 text-slate-300 border border-slate-700 transition">
+                            Clear Points
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Main Canvas Wrapper -->
+                <div class="relative w-full h-[380px] sm:h-[440px] bg-slate-950">
+                    <canvas id="gpCanvas" class="w-full h-full block cursor-crosshair"></canvas>
+
+                    <!-- Floating Live Hover Readout Pill -->
+                    <div id="hoverReadout" class="pointer-events-none absolute top-3 left-3 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-mono space-y-0.5 shadow-lg hidden sm:block">
+                        <div class="text-slate-400">Query <span class="text-white" id="readoutX">x* = 0.00</span></div>
+                        <div class="text-sky-400">Mean  <span id="readoutMean">μ(x*) = 0.00</span></div>
+                        <div class="text-indigo-300">95%CI <span id="readoutStd">±1.96σ_f = ±1.96</span></div>
+                        <div id="readoutPredY" class="text-rose-400 hidden">Pred y* <span id="readoutPredYVal">±1.96σ_y = ±2.05</span></div>
+                    </div>
+
+                    <!-- Floating Interaction Hint Overlay -->
+                    <div class="pointer-events-none absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                        <div class="bg-slate-900/85 backdrop-blur px-2.5 py-1 rounded-lg border border-slate-800">
+                            <span class="text-sky-400 font-semibold">Click</span> empty space to add <span class="font-mono">(x_i, y_i)</span> · 
+                            <span class="text-amber-400 font-semibold">Drag</span> point to move · 
+                            <span class="text-rose-400 font-semibold">Right-click / Double-click</span> point to delete
+                        </div>
+                        <div id="pinchStatusIndicator" class="bg-slate-900/85 backdrop-blur px-2.5 py-1 rounded-lg border border-slate-800 font-mono text-sky-300">
+                            Exact Interpolation: σ(x_i) = 0.000
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Strip: Local Kernel Influence Curve k(x, x*) at Hover Position -->
+                <div class="border-t border-slate-800 bg-slate-900/90 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 text-xs">
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="chkShowKernelSlice" checked onchange="requestRedraw()" class="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
+                            <span class="text-slate-300 font-medium">Show Local Kernel Footprint <span class="font-mono text-fuchsia-400">k(x, x*)</span> on Hover</span>
+                        </label>
+                        <span class="hidden md:inline text-slate-500">|</span>
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="chkShowPredNoiseBand" checked onchange="requestRedraw()" class="rounded bg-slate-800 border-slate-700 text-rose-500 focus:ring-0">
+                            <span class="text-slate-300 font-medium">Show Outer Predictive Noise Band <span class="font-mono text-rose-400">±1.96√(σ²(x) + σ_n²)</span></span>
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="chkShowTrueFunc" onchange="toggleTrueFunction()" class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                            <span class="text-emerald-300 font-medium">Show Ground Truth <span class="font-mono">g(x) = sin(1.3x) + 0.35cos(2.7x)</span></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Guided Lessons & Intuition Builder Cards -->
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 sm:p-5 shadow-xl space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                        <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                            <svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.476.859h4.002z"/></svg>
+                            <span>Interactive Guided Lab: Click any experiment below to test your intuition</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">Each card configures the plot and highlights a core property of Gaussian Processes.</p>
+                    </div>
+                    <span id="activeLessonIndicator" class="text-xs font-mono text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-lg self-start sm:self-auto">
+                        Lab 2 of 5 Active
+                    </span>
+                </div>
+
+                <!-- 5 Interactive Lesson Cards Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-2.5">
+                    <!-- Lesson 1 -->
+                    <button onclick="runGuidedScenario(1)" id="lessonBtn1" class="lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group">
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] font-mono text-indigo-400 mb-1">
+                                <span>EXP 01</span>
+                                <span class="px-1.5 py-0.2 bg-indigo-500/10 rounded">Prior</span>
+                            </div>
+                            <div class="font-semibold text-xs text-white group-hover:text-indigo-300 transition">Infinite Functions</div>
+                            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">See how the kernel shapes smoothness before observing any data.</p>
+                        </div>
+                        <span class="text-[11px] font-medium text-indigo-400 flex items-center gap-1">Try This →</span>
+                    </button>
+
+                    <!-- Lesson 2 -->
+                    <button onclick="runGuidedScenario(2)" id="lessonBtn2" class="lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group">
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] font-mono text-sky-400 mb-1">
+                                <span>EXP 02</span>
+                                <span class="px-1.5 py-0.2 bg-sky-500/10 rounded">σ_n = 0</span>
+                            </div>
+                            <div class="font-semibold text-xs text-white group-hover:text-sky-300 transition">Pinching the Prior</div>
+                            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">Noise-free points collapse uncertainty to 0 and pin every sample path.</p>
+                        </div>
+                        <span class="text-[11px] font-medium text-sky-400 flex items-center gap-1">Try This →</span>
+                    </button>
+
+                    <!-- Lesson 3 -->
+                    <button onclick="runGuidedScenario(3)" id="lessonBtn3" class="lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group">
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] font-mono text-rose-400 mb-1">
+                                <span>EXP 03</span>
+                                <span class="px-1.5 py-0.2 bg-rose-500/10 rounded">σ_n &gt; 0</span>
+                            </div>
+                            <div class="font-semibold text-xs text-white group-hover:text-rose-300 transition">Noisy Smoothing</div>
+                            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">Conflicting noisy points don't force wild oscillations; GP smooths them!</p>
+                        </div>
+                        <span class="text-[11px] font-medium text-rose-400 flex items-center gap-1">Try This →</span>
+                    </button>
+
+                    <!-- Lesson 4 -->
+                    <button onclick="runGuidedScenario(4)" id="lessonBtn4" class="lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group">
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] font-mono text-amber-400 mb-1">
+                                <span>EXP 04</span>
+                                <span class="px-1.5 py-0.2 bg-amber-500/10 rounded">Lengthscale</span>
+                            </div>
+                            <div class="font-semibold text-xs text-white group-hover:text-amber-300 transition">Short vs Long Memory</div>
+                            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">Watch uncertainty balloon rapidly between points when lengthscale l is small.</p>
+                        </div>
+                        <span class="text-[11px] font-medium text-amber-400 flex items-center gap-1">Try This →</span>
+                    </button>
+
+                    <!-- Lesson 5 -->
+                    <button onclick="runGuidedScenario(5)" id="lessonBtn5" class="lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group">
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] font-mono text-emerald-400 mb-1">
+                                <span>EXP 05</span>
+                                <span class="px-1.5 py-0.2 bg-emerald-500/10 rounded">Extrapolation</span>
+                            </div>
+                            <div class="font-semibold text-xs text-white group-hover:text-emerald-300 transition">Reverting to Prior</div>
+                            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">See what happens far away from observed data: GP knows what it doesn't know.</p>
+                        </div>
+                        <span class="text-[11px] font-medium text-emerald-400 flex items-center gap-1">Try This →</span>
+                    </button>
+                </div>
+
+                <!-- Detailed Deep-Dive Explanation Box for Current Lesson / Mode -->
+                <div class="rounded-xl bg-slate-950/90 border border-slate-800/90 p-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                    <div class="md:col-span-7 space-y-1.5">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-sky-400" id="deepDiveSubtitle">
+                            Why does this happen mathematically?
+                        </div>
+                        <h4 class="text-sm font-bold text-white" id="deepDiveTitle">
+                            Exact Interpolation vs. Tikhonov-like Regularization
+                        </h4>
+                        <p class="text-xs text-slate-300 leading-relaxed" id="deepDiveBody">
+                            In a Gaussian Process, predictions at a test input <span class="font-mono text-white">x*</span> use the covariance matrix <span class="font-mono text-sky-300">K_y = K(X,X) + σ_n²I</span>. When <span class="font-mono text-sky-300">σ_n = 0</span>, at any training point <span class="font-mono">x* = x_i</span>, the posterior variance <span class="font-mono">σ²(x_i) = k(x_i,x_i) - k(x_i,X) K(X,X)⁻¹ k(X,x_i) = 0</span> exactly. When <span class="font-mono text-rose-300">σ_n &gt; 0</span>, adding <span class="font-mono text-rose-300">σ_n²</span> to the diagonal of <span class="font-mono">K_y</span> prevents <span class="font-mono">K_y⁻¹</span> from forcing exact interpolation, allowing the mean curve to pass smoothly between noisy points while retaining non-zero epistemic uncertainty!
+                        </p>
+                    </div>
+                    <div class="md:col-span-5 bg-slate-900 rounded-xl p-3 border border-slate-800 font-mono text-[11px] space-y-1.5 text-slate-300">
+                        <div class="text-slate-400 font-sans font-semibold text-[11px] uppercase tracking-wider pb-1 border-b border-slate-800">
+                            GP Posterior Predictive Equations
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sky-400">Mean μ(x*):</span>
+                            <span>k(x*,X) [K + σ_n²I]⁻¹ y</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-indigo-400">Latent Var σ²(x*):</span>
+                            <span>k(x*,x*) - k_*ᵀ [K + σ_n²I]⁻¹ k_*</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-rose-400">Obs Var σ_y²(x*):</span>
+                            <span>σ²(x*) + σ_n²</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Controls, Noise Spotlight & Covariance Matrix Inspector (4 cols on lg) -->
+        <div class="lg:col-span-4 flex flex-col gap-5">
+
+            <!-- Observation Noise Spotlight Control Card (Hero Pedagogical Control) -->
+            <div id="noiseControlCard" class="rounded-2xl bg-slate-900 border-2 border-sky-500/40 p-4 sm:p-5 shadow-xl transition-all duration-300">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                            Key Concept Control
+                        </span>
+                        <h3 class="text-sm sm:text-base font-bold text-white mt-1">
+                            Observation Noise (<span class="font-mono text-rose-400">σ_n</span>)
+                        </h3>
+                    </div>
+                    <!-- Explicit Binary Mode Switch -->
+                    <div class="flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs font-semibold">
+                        <button id="btnNoiseZero" onclick="setNoisePreset(0)" class="px-2.5 py-1 rounded-md transition bg-sky-500 text-slate-950">
+                            Noise-Free (0)
+                        </button>
+                        <button id="btnNoisePositive" onclick="setNoisePreset(0.35)" class="px-2.5 py-1 rounded-md transition text-slate-400 hover:text-white">
+                            Noisy (&gt;0)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Noise Slider -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">Noise Std Dev <span class="font-mono text-rose-300">σ_n</span></span>
+                        <span id="valNoise" class="font-mono font-semibold text-sky-300">0.000 (Exact)</span>
+                    </div>
+                    <input type="range" id="sliderNoise" min="0" max="1.0" step="0.01" value="0" class="w-full noise-slider" oninput="onNoiseSliderChange(this.value)">
+                    <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>0.00 (Exact Pin)</span>
+                        <span>0.25 (Moderate)</span>
+                        <span>0.60 (High)</span>
+                        <span>1.00 (Extreme)</span>
+                    </div>
+                </div>
+
+                <!-- Dynamic Status Pill inside Noise Card -->
+                <div id="noiseStatusBox" class="mt-3.5 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs text-sky-200 flex items-start gap-2.5">
+                    <svg class="w-4 h-4 text-sky-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div id="noiseStatusText" class="leading-relaxed">
+                        <strong>Zero Noise (<span class="font-mono">σ_n = 0</span>):</strong> Diagonal jitter is <span class="font-mono">10⁻⁶</span>. Every observed point has zero error bar and forces 100% certainty at <span class="font-mono">x_i</span>.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kernel & Hyperparameters Control Card -->
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 sm:p-5 shadow-xl space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                        <h3 class="text-sm sm:text-base font-bold text-white">Kernel &amp; Hyperparameters</h3>
+                        <p class="text-xs text-slate-400">Defines covariance <span class="font-mono text-sky-300">k(x, x')</span> between any two inputs</p>
+                    </div>
+                </div>
+
+                <!-- Kernel Function Selector Buttons -->
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-slate-300 block">Covariance Kernel Function</label>
+                    <div class="grid grid-cols-2 gap-1.5">
+                        <button onclick="selectKernel('rbf')" id="kernBtn_rbf" class="kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left">
+                            <div>RBF / Squared Exp</div>
+                            <div class="text-[10px] font-mono opacity-75">Infinitely smooth (C^∞)</div>
+                        </button>
+                        <button onclick="selectKernel('matern32')" id="kernBtn_matern32" class="kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left">
+                            <div>Matérn 3/2</div>
+                            <div class="text-[10px] font-mono opacity-75">Rougher, realistic (C¹)</div>
+                        </button>
+                        <button onclick="selectKernel('periodic')" id="kernBtn_periodic" class="kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left">
+                            <div>Periodic</div>
+                            <div class="text-[10px] font-mono opacity-75">Repeating cycles</div>
+                        </button>
+                        <button onclick="selectKernel('linear')" id="kernBtn_linear" class="kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left">
+                            <div>Linear (Bayesian Reg)</div>
+                            <div class="text-[10px] font-mono opacity-75">Straight lines f(x)=wx</div>
+                        </button>
+                    </div>
+                    <!-- Active Kernel Formula Display -->
+                    <div id="kernelFormulaBox" class="mt-2 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800/80 font-mono text-[11px] text-sky-300 text-center">
+                        k(x,x') = σ_f² exp( -||x - x'||² / 2l² )
+                    </div>
+                </div>
+
+                <!-- Lengthscale Slider -->
+                <div id="lengthscaleContainer" class="space-y-1.5">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300 font-medium">Lengthscale (<span class="font-mono text-sky-400">l</span>) <span class="text-slate-500 font-normal">— Horizontal reach</span></span>
+                        <span id="valLengthscale" class="font-mono font-semibold text-sky-400">1.20</span>
+                    </div>
+                    <input type="range" id="sliderLengthscale" min="0.25" max="3.5" step="0.05" value="1.20" class="w-full" oninput="onHyperparamChange()">
+                    <div class="flex justify-between text-[10px] text-slate-500">
+                        <span>0.25 (Wiggly / Rapid Uncertainty)</span>
+                        <span>3.50 (Stiff / Long Reach)</span>
+                    </div>
+                </div>
+
+                <!-- Signal Variance Slider -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300 font-medium">Signal Amplitude (<span class="font-mono text-sky-400">σ_f</span>) <span class="text-slate-500 font-normal">— Vertical scale</span></span>
+                        <span id="valSignalStd" class="font-mono font-semibold text-sky-400">1.00</span>
+                    </div>
+                    <input type="range" id="sliderSignalStd" min="0.3" max="2.0" step="0.05" value="1.00" class="w-full" oninput="onHyperparamChange()">
+                </div>
+
+                <!-- Period Slider (Only visible for Periodic Kernel) -->
+                <div id="periodContainer" class="space-y-1.5 hidden">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300 font-medium">Period (<span class="font-mono text-sky-400">p</span>) <span class="text-slate-500 font-normal">— Cycle repetition distance</span></span>
+                        <span id="valPeriod" class="font-mono font-semibold text-sky-400">3.00</span>
+                    </div>
+                    <input type="range" id="sliderPeriod" min="1.0" max="6.0" step="0.1" value="3.00" class="w-full" oninput="onHyperparamChange()">
+                </div>
+
+                <!-- Function Space Samples Control -->
+                <div class="pt-2 border-t border-slate-800 flex flex-col gap-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-300">Function Space Samples (<span class="font-mono text-amber-400">f ~ GP</span>)</span>
+                        <div class="flex items-center gap-1.5">
+                            <button onclick="changeSampleCount(-1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700">-</button>
+                            <span id="valNumSamples" class="font-mono text-xs w-6 text-center text-amber-300">5</span>
+                            <button onclick="changeSampleCount(1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700">+</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btnToggleAnim" onclick="toggleSampleAnimation()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition flex items-center justify-center gap-1.5">
+                            <span id="animDot" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                            <span id="animBtnText">Morphing Samples: ON</span>
+                        </button>
+                        <button onclick="resampleRandomSeeds()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+                            Draw New Random Paths
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Covariance Matrix K_y = K(X,X) + sigma_n^2 I Inspector -->
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 sm:p-5 shadow-xl space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <span>Covariance Matrix Inspector</span>
+                            <span class="font-mono text-xs text-sky-400">K_y = K(X,X) + σ_n²I</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-400">Visualizes pairwise correlations &amp; diagonal noise regularization</p>
+                    </div>
+                    <span id="matrixDimBadge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        3 × 3
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center bg-slate-950/80 p-3 rounded-xl border border-slate-800/80">
+                    <div class="sm:col-span-6 flex items-center justify-center">
+                        <canvas id="covMatrixCanvas" width="160" height="160" class="w-[150px] h-[150px] rounded-lg border border-slate-800"></canvas>
+                    </div>
+                    <div class="sm:col-span-6 space-y-2 text-xs">
+                        <div class="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <div class="text-[10px] uppercase tracking-wider text-slate-400">Diagonal Entries (i = j)</div>
+                            <div id="diagFormulaText" class="font-mono text-xs text-sky-300 mt-0.5">
+                                K_ii = σ_f² + σ_n² = 1.00
+                            </div>
+                        </div>
+                        <div class="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <div class="text-[10px] uppercase tracking-wider text-slate-400">Log Marginal Likelihood</div>
+                            <div id="logMarginalText" class="font-mono text-xs text-emerald-400 mt-0.5">
+                                log p(y|X) = -3.42
+                            </div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">Balances Data Fit vs Complexity</div>
+                        </div>
+                        <p id="covInspectorHint" class="text-[11px] text-slate-400 leading-snug">
+                            Bright diagonal shows self-variance <span class="font-mono">σ_f² + σ_n²</span>. Off-diagonal blocks brighten when points <span class="font-mono">x_i, x_j</span> are closer than lengthscale <span class="font-mono">l</span>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-4 border-t border-slate-800/70 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div>
+            Interactive Probabilistic ML Visual · Exact Cholesky Posterior Inference <span class="font-mono text-slate-400">L Lᵀ = K(X,X) + σ_n²I</span>
+        </div>
+        <div class="flex items-center gap-4">
+            <span>Tip: Drag an observed point through another point in both Noise-Free and Noisy modes!</span>
+        </div>
+    </footer>
+
+    <!-- Complete Self-Contained GP Mathematical & Visual Engine -->
+    <script>
+        /***********************************************************************
+         * 1. APPLICATION STATE & CONFIGURATION
+         ***********************************************************************/
+        const DOMAIN_X = [-5.0, 5.0];
+        const DOMAIN_Y = [-3.0, 3.0];
+        const GRID_SIZE = 135; // High-resolution grid for smooth curves and posterior sampling
+        const xGrid = [];
+        for (let i = 0; i < GRID_SIZE; i++) {
+            xGrid.push(DOMAIN_X[0] + (DOMAIN_X[1] - DOMAIN_X[0]) * (i / (GRID_SIZE - 1)));
+        }
+
+        const state = {
+            mode: 'noisefree',        // 'prior' | 'noisefree' | 'noisy'
+            kernelType: 'rbf',        // 'rbf' | 'matern32' | 'periodic' | 'linear'
+            lengthscale: 1.20,        // l
+            signalStd: 1.00,          // sigma_f
+            noiseStd: 0.00,           // sigma_n (0 in noise-free mode, >0 in noisy mode)
+            lastNoisyValue: 0.35,     // Remembered noise value when toggling between Noise-Free and Noisy
+            period: 3.00,             // p for periodic kernel
+            points: [                 // Initial noise-free demonstration points
+                { x: -2.6, y: -1.1 },
+                { x: -0.4, y: 1.35 },
+                { x: 2.3,  y: -0.65 }
+            ],
+            savedPointsBackup: [],    // Stores points when switching to Mode 1 (Prior) and back
+            numSamples: 5,
+            animateSamples: true,
+            animPhase: 0.0,
+            showTrueFunc: false,
+            showKernelSlice: true,
+            showPredNoiseBand: true,
+            hoverX: null,             // Current mouse x in domain coordinates
+            hoverY: null,             // Current mouse y in domain coordinates
+            draggingPointIdx: -1,
+            hoveredPointIdx: -1,
+            activeLesson: 2,
+            // Cached Posterior Results
+            posterior: {
+                mean: new Float64Array(GRID_SIZE),
+                variance: new Float64Array(GRID_SIZE),
+                samplePaths: [],
+                K_train: [],
+                logMarginalLikelihood: null
+            }
+        };
+
+        // Pre-generate smooth Gaussian random vectors for continuous orbital sample animation
+        // Using 2 orthogonal standard normal vectors (Z1, Z2) per sample path:
+        // z(t) = Z1 * cos(t) + Z2 * sin(t) is distributed as N(0, I) for every t!
+        const MAX_SAMPLES = 10;
+        let randomBasisZ1 = [];
+        let randomBasisZ2 = [];
+
+        function randn() {
+            let u = 0, v = 0;
+            while (u === 0) u = Math.random();
+            while (v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+
+        function initRandomBases() {
+            randomBasisZ1 = [];
+            randomBasisZ2 = [];
+            for (let s = 0; s < MAX_SAMPLES; s++) {
+                const z1 = new Float64Array(GRID_SIZE);
+                const z2 = new Float64Array(GRID_SIZE);
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    z1[i] = randn();
+                    z2[i] = randn();
+                }
+                randomBasisZ1.push(z1);
+                randomBasisZ2.push(z2);
+            }
+        }
+        initRandomBases();
+
+        // Ground truth underlying function g(x)
+        function trueFunction(x) {
+            return Math.sin(1.3 * x) + 0.35 * Math.cos(2.7 * x);
+        }
+
+        /***********************************************************************
+         * 2. KERNEL FUNCTIONS & LINEAR ALGEBRA (CHOLESKY SOLVER)
+         ***********************************************************************/
+        function computeKernel(x1, x2) {
+            const sf2 = state.signalStd * state.signalStd;
+            const l = Math.max(0.05, state.lengthscale);
+            const d = Math.abs(x1 - x2);
+
+            switch (state.kernelType) {
+                case 'rbf':
+                    return sf2 * Math.exp(-0.5 * (d * d) / (l * l));
+                case 'matern32': {
+                    const sqrt3_d_l = Math.sqrt(3.0) * d / l;
+                    return sf2 * (1.0 + sqrt3_d_l) * Math.exp(-sqrt3_d_l);
+                }
+                case 'periodic': {
+                    const p = Math.max(0.2, state.period);
+                    const sinPart = Math.sin(Math.PI * d / p);
+                    return sf2 * Math.exp(-2.0 * (sinPart * sinPart) / (l * l));
+                }
+                case 'linear': {
+                    // Linear kernel with bias term controlled by lengthscale slider
+                    const c = 0.4;
+                    return sf2 * (c + (x1 * x2) / (l * l));
+                }
+                default:
+                    return sf2 * Math.exp(-0.5 * (d * d) / (l * l));
+            }
+        }
+
+        /**
+         * Cholesky Decomposition of symmetric positive-definite matrix A (n x n).
+         * Returns lower triangular matrix L such that L * L^T = A.
+         */
+        function choleskyDecomposition(A, n) {
+            const L = Array.from({ length: n }, () => new Float64Array(n));
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j <= i; j++) {
+                    let sum = A[i][j];
+                    for (let k = 0; k < j; k++) {
+                        sum -= L[i][k] * L[j][k];
+                    }
+                    if (i === j) {
+                        // Numerical safety floor for near-singular matrices
+                        L[i][j] = Math.sqrt(Math.max(sum, 1e-11));
+                    } else {
+                        L[i][j] = sum / L[j][j];
+                    }
+                }
+            }
+            return L;
+        }
+
+        /**
+         * Solves L * x = b (Forward Substitution)
+         */
+        function solveLowerTriangular(L, b, n) {
+            const x = new Float64Array(n);
+            for (let i = 0; i < n; i++) {
+                let sum = b[i];
+                for (let k = 0; k < i; k++) {
+                    sum -= L[i][k] * x[k];
+                }
+                x[i] = sum / L[i][i];
+            }
+            return x;
+        }
+
+        /**
+         * Solves L^T * x = b (Backward Substitution)
+         */
+        function solveUpperTriangular(L, b, n) {
+            const x = new Float64Array(n);
+            for (let i = n - 1; i >= 0; i--) {
+                let sum = b[i];
+                for (let k = i + 1; k < n; k++) {
+                    sum -= L[k][i] * x[k];
+                }
+                x[i] = sum / L[i][i];
+            }
+            return x;
+        }
+
+        /**
+         * Computes full Gaussian Process Posterior over xGrid:
+         * - Posterior mean vector mu_*
+         * - Posterior covariance matrix Sigma_* = K(X_*, X_*) - K(X_*, X) K_y^-1 K(X, X_*)
+         * - Cholesky factor L_* of Sigma_* to draw exact smooth function-space samples!
+         */
+        let cachedL_star = null;
+
+        function updateGPPosterior() {
+            const N = state.points.length;
+            const M = GRID_SIZE;
+            const jitter = 1e-6; // Numerical stability jitter for Cholesky when sigma_n = 0
+            const noiseVar = state.noiseStd * state.noiseStd;
+
+            const mean = new Float64Array(M);
+            const variance = new Float64Array(M);
+
+            // Prior covariance on test grid K(X_*, X_*)
+            const Sigma_star = Array.from({ length: M }, () => new Float64Array(M));
+            for (let i = 0; i < M; i++) {
+                for (let j = 0; j <= i; j++) {
+                    const kv = computeKernel(xGrid[i], xGrid[j]);
+                    Sigma_star[i][j] = kv;
+                    Sigma_star[j][i] = kv;
+                }
+            }
+
+            if (N === 0) {
+                // Pure GP Prior
+                for (let i = 0; i < M; i++) {
+                    mean[i] = 0.0;
+                    variance[i] = Sigma_star[i][i];
+                    Sigma_star[i][i] += 1e-7; // Jitter for sampling Cholesky
+                }
+                cachedL_star = choleskyDecomposition(Sigma_star, M);
+                state.posterior.mean = mean;
+                state.posterior.variance = variance;
+                state.posterior.K_train = [];
+                state.posterior.logMarginalLikelihood = null;
+                computeSamplePathsFromCholesky();
+                return;
+            }
+
+            // 1. Build training covariance matrix K_y = K(X, X) + (sigma_n^2 + jitter) I
+            const K_y = Array.from({ length: N }, () => new Float64Array(N));
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j <= i; j++) {
+                    let kv = computeKernel(state.points[i].x, state.points[j].x);
+                    if (i === j) {
+                        kv += noiseVar + jitter;
+                    }
+                    K_y[i][j] = kv;
+                    K_y[j][i] = kv;
+                }
+            }
+            state.posterior.K_train = K_y;
+
+            // 2. Cholesky decomposition L of K_y
+            const L = choleskyDecomposition(K_y, N);
+
+            // 3. Solve alpha = K_y^-1 y = L^-T (L^-1 y)
+            const yVec = new Float64Array(N);
+            for (let i = 0; i < N; i++) yVec[i] = state.points[i].y;
+            const Ly = solveLowerTriangular(L, yVec, N);
+            const alpha = solveUpperTriangular(L, Ly, N);
+
+            // Compute Log Marginal Likelihood: log p(y|X) = -0.5 y^T alpha - sum(log L_ii) - N/2 log(2pi)
+            let dataFit = 0;
+            let complexityPenalty = 0;
+            for (let i = 0; i < N; i++) {
+                dataFit += yVec[i] * alpha[i];
+                complexityPenalty += Math.log(L[i][i]);
+            }
+            state.posterior.logMarginalLikelihood = -0.5 * dataFit - complexityPenalty - 0.5 * N * Math.log(2 * Math.PI);
+
+            // 4. Compute V = L^-1 K(X, X_*) for each grid point x_*
+            const V = Array.from({ length: M }, () => new Float64Array(N));
+            const k_star = new Float64Array(N);
+
+            for (let i = 0; i < M; i++) {
+                const x_s = xGrid[i];
+                let mu = 0.0;
+                for (let j = 0; j < N; j++) {
+                    const kv = computeKernel(x_s, state.points[j].x);
+                    k_star[j] = kv;
+                    mu += kv * alpha[j];
+                }
+                mean[i] = mu;
+                V[i] = solveLowerTriangular(L, k_star, N);
+            }
+
+            // 5. Update posterior covariance matrix Sigma_* = K(X_*, X_*) - V^T V
+            for (let i = 0; i < M; i++) {
+                const vi = V[i];
+                for (let j = 0; j <= i; j++) {
+                    const vj = V[j];
+                    let dot = 0.0;
+                    for (let k = 0; k < N; k++) {
+                        dot += vi[k] * vj[k];
+                    }
+                    const postCov = Sigma_star[i][j] - dot;
+                    Sigma_star[i][j] = postCov;
+                    Sigma_star[j][i] = postCov;
+                }
+                variance[i] = Math.max(0.0, Sigma_star[i][i]);
+                // Add tiny jitter on diagonal of Sigma_* so Cholesky sample generation is always stable
+                Sigma_star[i][i] = variance[i] + 1e-7;
+            }
+
+            cachedL_star = choleskyDecomposition(Sigma_star, M);
+            state.posterior.mean = mean;
+            state.posterior.variance = variance;
+            computeSamplePathsFromCholesky();
+        }
+
+        /**
+         * Uses cachedL_star and current orbital phase to generate smooth random function paths
+         * f_s(x) = mu(x) + L_* z_s(t)
+         */
+        function computeSamplePathsFromCholesky() {
+            if (!cachedL_star) return;
+            const M = GRID_SIZE;
+            const paths = [];
+            const cosT = Math.cos(state.animPhase);
+            const sinT = Math.sin(state.animPhase);
+            const z = new Float64Array(M);
+
+            for (let s = 0; s < state.numSamples; s++) {
+                const z1 = randomBasisZ1[s];
+                const z2 = randomBasisZ2[s];
+                // Phase offset per sample path for organic variety
+                const c = Math.cos(state.animPhase + s * 0.4);
+                const sn = Math.sin(state.animPhase + s * 0.4);
+                for (let i = 0; i < M; i++) {
+                    z[i] = z1[i] * c + z2[i] * sn;
+                }
+
+                const sample = new Float64Array(M);
+                for (let i = 0; i < M; i++) {
+                    let sum = state.posterior.mean[i];
+                    const rowL = cachedL_star[i];
+                    for (let j = 0; j <= i; j++) {
+                        sum += rowL[j] * z[j];
+                    }
+                    sample[i] = sum;
+                }
+                paths.push(sample);
+            }
+            state.posterior.samplePaths = paths;
+        }
+
+        /**
+         * Computes exact GP prediction at a single arbitrary query x* (for smooth cursor hover readout)
+         */
+        function evaluateGPAtPoint(xQuery) {
+            // Interpolate from high-res grid for instant response
+            const t = (xQuery - DOMAIN_X[0]) / (DOMAIN_X[1] - DOMAIN_X[0]);
+            const idxFloat = Math.max(0, Math.min(GRID_SIZE - 1.0001, t * (GRID_SIZE - 1)));
+            const idx0 = Math.floor(idxFloat);
+            const idx1 = idx0 + 1;
+            const frac = idxFloat - idx0;
+
+            const mu = state.posterior.mean[idx0] * (1 - frac) + state.posterior.mean[idx1] * frac;
+            const variance = state.posterior.variance[idx0] * (1 - frac) + state.posterior.variance[idx1] * frac;
+            return { mu, std: Math.sqrt(Math.max(0, variance)) };
+        }
+
+        /***********************************************************************
+         * 3. CANVAS RENDERING (MAIN GP PLOT & COVARIANCE INSPECTOR)
+         ***********************************************************************/
+        const gpCanvas = document.getElementById('gpCanvas');
+        const ctx = gpCanvas.getContext('2d');
+        const covCanvas = document.getElementById('covMatrixCanvas');
+        const covCtx = covCanvas.getContext('2d');
+
+        // Coordinate conversion helpers
+        function xToPx(x, width) {
+            const padLeft = 46;
+            const padRight = 20;
+            const plotW = width - padLeft - padRight;
+            return padLeft + ((x - DOMAIN_X[0]) / (DOMAIN_X[1] - DOMAIN_X[0])) * plotW;
+        }
+
+        function yToPx(y, height) {
+            const padTop = 20;
+            const padBottom = 32;
+            const plotH = height - padTop - padBottom;
+            return padTop + ((DOMAIN_Y[1] - y) / (DOMAIN_Y[1] - DOMAIN_Y[0])) * plotH;
+        }
+
+        function pxToX(px, width) {
+            const padLeft = 46;
+            const padRight = 20;
+            const plotW = width - padLeft - padRight;
+            const x = DOMAIN_X[0] + ((px - padLeft) / plotW) * (DOMAIN_X[1] - DOMAIN_X[0]);
+            return Math.max(DOMAIN_X[0], Math.min(DOMAIN_X[1], x));
+        }
+
+        function pxToY(py, height) {
+            const padTop = 20;
+            const padBottom = 32;
+            const plotH = height - padTop - padBottom;
+            const y = DOMAIN_Y[1] - ((py - padTop) / plotH) * (DOMAIN_Y[1] - DOMAIN_Y[0]);
+            return Math.max(DOMAIN_Y[0], Math.min(DOMAIN_Y[1], y));
+        }
+
+        function resizeMainCanvas() {
+            const rect = gpCanvas.parentElement.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            gpCanvas.width = rect.width * dpr;
+            gpCanvas.height = rect.height * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawMainPlot();
+        }
+
+        function drawMainPlot() {
+            const width = gpCanvas.width / (window.devicePixelRatio || 1);
+            const height = gpCanvas.height / (window.devicePixelRatio || 1);
+            ctx.clearRect(0, 0, width, height);
+
+            const padLeft = 46;
+            const padRight = 20;
+            const padTop = 20;
+            const padBottom = 32;
+
+            // 1. Draw Background Grid & Axes
+            ctx.save();
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.font = '11px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#64748b';
+
+            // Vertical grid lines (x from -5 to 5)
+            for (let xVal = -5; xVal <= 5; xVal += 1) {
+                const px = xToPx(xVal, width);
+                ctx.beginPath();
+                ctx.moveTo(px, padTop);
+                ctx.lineTo(px, height - padBottom);
+                ctx.strokeStyle = xVal === 0 ? '#334155' : '#162032';
+                ctx.stroke();
+
+                ctx.textAlign = 'center';
+                ctx.fillText(xVal.toString(), px, height - padBottom + 16);
+            }
+
+            // Horizontal grid lines (y from -3 to 3)
+            for (let yVal = -3; yVal <= 3; yVal += 1) {
+                const py = yToPx(yVal, height);
+                ctx.beginPath();
+                ctx.moveTo(padLeft, py);
+                ctx.lineTo(width - padRight, py);
+                ctx.strokeStyle = yVal === 0 ? '#334155' : '#162032';
+                ctx.stroke();
+
+                ctx.textAlign = 'right';
+                ctx.fillText(yVal.toFixed(1), padLeft - 8, py + 4);
+            }
+            ctx.restore();
+
+            // Clip to plot area
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(padLeft, padTop, width - padLeft - padRight, height - padTop - padBottom);
+            ctx.clip();
+
+            const mean = state.posterior.mean;
+            const variance = state.posterior.variance;
+            const noiseVar = state.noiseStd * state.noiseStd;
+
+            // 2. Draw Outer Predictive Observation Noise Band: mu(x) ± 1.96 * sqrt(sigma^2(x) + sigma_n^2)
+            if (state.noiseStd > 0.001 && state.showPredNoiseBand) {
+                ctx.beginPath();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const stdY = Math.sqrt(variance[i] + noiseVar);
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(mean[i] + 1.96 * stdY, height);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                for (let i = GRID_SIZE - 1; i >= 0; i--) {
+                    const stdY = Math.sqrt(variance[i] + noiseVar);
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(mean[i] - 1.96 * stdY, height);
+                    ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(244, 63, 94, 0.10)';
+                ctx.fill();
+
+                // Dashed boundary for predictive observation interval
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = 'rgba(244, 63, 94, 0.45)';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const stdY = Math.sqrt(variance[i] + noiseVar);
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(mean[i] + 1.96 * stdY, height);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const stdY = Math.sqrt(variance[i] + noiseVar);
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(mean[i] - 1.96 * stdY, height);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // 3. Draw Latent Function 95% Confidence Interval: mu(x) ± 1.96 * sigma(x)
+            ctx.beginPath();
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const stdF = Math.sqrt(variance[i]);
+                const px = xToPx(xGrid[i], width);
+                const py = yToPx(mean[i] + 1.96 * stdF, height);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            for (let i = GRID_SIZE - 1; i >= 0; i--) {
+                const stdF = Math.sqrt(variance[i]);
+                const px = xToPx(xGrid[i], width);
+                const py = yToPx(mean[i] - 1.96 * stdF, height);
+                ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            const gradCI = ctx.createLinearGradient(0, padTop, 0, height - padBottom);
+            gradCI.addColorStop(0, 'rgba(56, 189, 248, 0.26)');
+            gradCI.addColorStop(0.5, 'rgba(56, 189, 248, 0.14)');
+            gradCI.addColorStop(1, 'rgba(56, 189, 248, 0.26)');
+            ctx.fillStyle = gradCI;
+            ctx.fill();
+
+            // Upper & lower 95% CI outlines
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+            ctx.lineWidth = 1.25;
+            ctx.beginPath();
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const stdF = Math.sqrt(variance[i]);
+                const px = xToPx(xGrid[i], width);
+                const py = yToPx(mean[i] + 1.96 * stdF, height);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const stdF = Math.sqrt(variance[i]);
+                const px = xToPx(xGrid[i], width);
+                const py = yToPx(mean[i] - 1.96 * stdF, height);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+
+            // 4. Draw Random Function Sample Paths f_s(x) ~ GP
+            const sampleColors = [
+                'rgba(251, 191, 36, 0.78)', // Amber
+                'rgba(167, 139, 250, 0.75)', // Violet
+                'rgba(52, 211, 153, 0.75)',  // Emerald
+                'rgba(244, 114, 182, 0.75)', // Pink
+                'rgba(96, 165, 250, 0.75)',  // Blue
+                'rgba(251, 146, 60, 0.75)',  // Orange
+                'rgba(45, 212, 191, 0.75)',  // Teal
+                'rgba(232, 121, 249, 0.75)', // Fuchsia
+                'rgba(163, 230, 53, 0.75)',  // Lime
+                'rgba(248, 113, 113, 0.75)'  // Red
+            ];
+
+            for (let s = 0; s < state.posterior.samplePaths.length; s++) {
+                const path = state.posterior.samplePaths[s];
+                ctx.beginPath();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(path[i], height);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.strokeStyle = sampleColors[s % sampleColors.length];
+                ctx.lineWidth = 1.6;
+                ctx.stroke();
+            }
+
+            // 5. Optional: Draw Ground Truth Function g(x)
+            if (state.showTrueFunc) {
+                ctx.save();
+                ctx.setLineDash([6, 4]);
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const px = xToPx(xGrid[i], width);
+                    const py = yToPx(trueFunction(xGrid[i]), height);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // 6. Draw GP Posterior Mean Curve mu(x)
+            ctx.save();
+            ctx.beginPath();
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const px = xToPx(xGrid[i], width);
+                const py = yToPx(mean[i], height);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 3.0;
+            ctx.shadowColor = 'rgba(56, 189, 248, 0.5)';
+            ctx.shadowBlur = 8;
+            ctx.stroke();
+            ctx.restore();
+
+            // 7. Draw Local Kernel Influence Curve k(x, x*) at Bottom of Plot when hovering
+            if (state.hoverX !== null && state.showKernelSlice) {
+                const xStar = state.hoverX;
+                const kMax = Math.max(0.01, computeKernel(xStar, xStar));
+                const basePy = yToPx(-2.85, height);
+                const peakHeightPx = 58;
+
+                // Shaded kernel footprint at bottom
+                ctx.beginPath();
+                ctx.moveTo(xToPx(DOMAIN_X[0], width), basePy);
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const kv = computeKernel(xGrid[i], xStar);
+                    const normK = kv / kMax;
+                    const px = xToPx(xGrid[i], width);
+                    const py = basePy - normK * peakHeightPx;
+                    ctx.lineTo(px, py);
+                }
+                ctx.lineTo(xToPx(DOMAIN_X[1], width), basePy);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(217, 70, 239, 0.16)';
+                ctx.fill();
+
+                // Kernel outline
+                ctx.beginPath();
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const kv = computeKernel(xGrid[i], xStar);
+                    const normK = kv / kMax;
+                    const px = xToPx(xGrid[i], width);
+                    const py = basePy - normK * peakHeightPx;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.strokeStyle = 'rgba(232, 121, 249, 0.85)';
+                ctx.lineWidth = 1.75;
+                ctx.stroke();
+
+                // Draw correlation tethers from x* to each observed training point x_i
+                const hoverEval = evaluateGPAtPoint(xStar);
+                const hoverPx = xToPx(xStar, width);
+                const hoverMeanPy = yToPx(hoverEval.mu, height);
+
+                state.points.forEach((pt) => {
+                    const kv = computeKernel(xStar, pt.x);
+                    const corr = Math.max(0, Math.min(1, Math.abs(kv) / kMax));
+                    if (corr > 0.05) {
+                        ctx.beginPath();
+                        ctx.moveTo(hoverPx, hoverMeanPy);
+                        ctx.lineTo(xToPx(pt.x, width), yToPx(pt.y, height));
+                        ctx.strokeStyle = `rgba(232, 121, 249, ${corr * 0.65})`;
+                        ctx.lineWidth = 1 + corr * 2.5;
+                        ctx.stroke();
+                    }
+                });
+
+                // Vertical cursor slices showing ±1.96 sigma(x*)
+                const topCI = yToPx(hoverEval.mu + 1.96 * hoverEval.std, height);
+                const botCI = yToPx(hoverEval.mu - 1.96 * hoverEval.std, height);
+
+                ctx.beginPath();
+                ctx.moveTo(hoverPx, topCI);
+                ctx.lineTo(hoverPx, botCI);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Mean dot at x*
+                ctx.beginPath();
+                ctx.arc(hoverPx, hoverMeanPy, 4.5, 0, 2 * Math.PI);
+                ctx.fillStyle = '#38bdf8';
+                ctx.fill();
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
+            // 8. Draw Observed Data Points (x_i, y_i) & Noise Error Bars
+            for (let i = 0; i < state.points.length; i++) {
+                const pt = state.points[i];
+                const px = xToPx(pt.x, width);
+                const py = yToPx(pt.y, height);
+                const isHovered = (i === state.hoveredPointIdx || i === state.draggingPointIdx);
+
+                // If noise > 0, draw ±1.96 * sigma_n error bars on each observation
+                if (state.noiseStd > 0.001) {
+                    const errY = 1.96 * state.noiseStd;
+                    const pyTop = yToPx(pt.y + errY, height);
+                    const pyBot = yToPx(pt.y - errY, height);
+
+                    ctx.save();
+                    ctx.strokeStyle = isHovered ? '#fda4af' : 'rgba(244, 63, 94, 0.85)';
+                    ctx.lineWidth = 2.0;
+                    ctx.beginPath();
+                    ctx.moveTo(px, pyTop);
+                    ctx.lineTo(px, pyBot);
+                    // Top & Bottom Whiskers
+                    ctx.moveTo(px - 5, pyTop);
+                    ctx.lineTo(px + 5, pyTop);
+                    ctx.moveTo(px - 5, pyBot);
+                    ctx.lineTo(px + 5, pyBot);
+                    ctx.stroke();
+
+                    // Draw residual line between observation y_i and GP mean mu(x_i)
+                    const predAtPt = evaluateGPAtPoint(pt.x);
+                    const pyMean = yToPx(predAtPt.mu, height);
+                    ctx.setLineDash([2, 2]);
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(px, pyMean);
+                    ctx.stroke();
+                    ctx.restore();
+                } else {
+                    // In Noise-Free mode, draw a subtle "pinch ring" highlighting exact zero uncertainty
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(px, py, isHovered ? 13 : 10, 0, 2 * Math.PI);
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+                    ctx.lineWidth = 1.2;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // Data point circle
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(px, py, isHovered ? 7.5 : 6.0, 0, 2 * Math.PI);
+                ctx.fillStyle = isHovered ? '#fb7185' : '#f43f5e';
+                ctx.fill();
+                ctx.lineWidth = 2.0;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            ctx.restore(); // End plot area clip
+        }
+
+        /**
+         * Renders the Secondary Covariance Matrix Heatmap K_y = K(X,X) + sigma_n^2 I
+         */
+        function drawCovarianceMatrix() {
+            const w = covCanvas.width;
+            const h = covCanvas.height;
+            covCtx.clearRect(0, 0, w, h);
+
+            const N = state.points.length;
+            document.getElementById('matrixDimBadge').textContent = N === 0 ? 'Prior (0 × 0)' : `${N} × ${N}`;
+
+            const sf2 = state.signalStd * state.signalStd;
+            const sn2 = state.noiseStd * state.noiseStd;
+            document.getElementById('diagFormulaText').textContent =
+                `K_ii = ${sf2.toFixed(2)} + ${sn2.toFixed(2)} = ${(sf2 + sn2).toFixed(2)}`;
+
+            if (state.posterior.logMarginalLikelihood !== null) {
+                document.getElementById('logMarginalText').textContent =
+                    `log p(y|X) = ${state.posterior.logMarginalLikelihood.toFixed(2)}`;
+            } else {
+                document.getElementById('logMarginalText').textContent = `log p(y|X) = N/A (Prior)`;
+            }
+
+            if (N === 0) {
+                covCtx.fillStyle = '#0f172a';
+                covCtx.fillRect(0, 0, w, h);
+                covCtx.fillStyle = '#64748b';
+                covCtx.font = '11px Inter, sans-serif';
+                covCtx.textAlign = 'center';
+                covCtx.fillText('No observations yet', w / 2, h / 2 - 6);
+                covCtx.fillText('Click plot to add (x_i, y_i)', w / 2, h / 2 + 12);
+                return;
+            }
+
+            const K = state.posterior.K_train;
+            const maxVal = Math.max(0.01, sf2 + sn2);
+            const cellSize = w / N;
+
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    const val = K[i][j];
+                    const ratio = Math.max(0, Math.min(1, val / maxVal));
+
+                    // Color interpolation: deep slate -> sky blue -> rose highlight on noisy diagonal
+                    if (i === j && state.noiseStd > 0.01) {
+                        const r = Math.round(30 + ratio * 214);
+                        const g = Math.round(41 + ratio * 40);
+                        const b = Math.round(59 + ratio * 65);
+                        covCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    } else {
+                        const r = Math.round(15 + ratio * 41);
+                        const g = Math.round(23 + ratio * 166);
+                        const b = Math.round(42 + ratio * 206);
+                        covCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    }
+
+                    covCtx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+                    covCtx.strokeStyle = '#0f172a';
+                    covCtx.lineWidth = 1;
+                    covCtx.strokeRect(j * cellSize, i * cellSize, cellSize, cellSize);
+
+                    // Draw numeric value if N <= 5
+                    if (N <= 5) {
+                        covCtx.fillStyle = ratio > 0.55 ? '#080d1a' : '#e2e8f0';
+                        covCtx.font = '600 10px "JetBrains Mono", monospace';
+                        covCtx.textAlign = 'center';
+                        covCtx.fillText(val.toFixed(2), (j + 0.5) * cellSize, (i + 0.5) * cellSize + 3.5);
+                    }
+                }
+            }
+        }
+
+        /***********************************************************************
+         * 4. INTERACTIVE MOUSE & TOUCH HANDLERS FOR MAIN PLOT
+         ***********************************************************************/
+        function getCanvasMousePos(evt) {
+            const rect = gpCanvas.getBoundingClientRect();
+            const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+            const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+            return {
+                px: clientX - rect.left,
+                py: clientY - rect.top,
+                width: rect.width,
+                height: rect.height
+            };
+        }
+
+        function findNearestPointIndex(px, py, width, height, radiusThreshold = 14) {
+            let bestIdx = -1;
+            let bestDist = radiusThreshold;
+            for (let i = 0; i < state.points.length; i++) {
+                const ptPx = xToPx(state.points[i].x, width);
+                const ptPy = yToPx(state.points[i].y, height);
+                const dist = Math.hypot(px - ptPx, py - ptPy);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
+        }
+
+        gpCanvas.addEventListener('mousedown', (evt) => {
+            if (evt.button === 2) return; // Handled by contextmenu
+            const { px, py, width, height } = getCanvasMousePos(evt);
+            const hitIdx = findNearestPointIndex(px, py, width, height);
+
+            if (hitIdx !== -1) {
+                state.draggingPointIdx = hitIdx;
+            } else {
+                // Add new point at clicked location
+                const newX = pxToX(px, width);
+                const newY = pxToY(py, height);
+                state.points.push({ x: newX, y: newY });
+                state.draggingPointIdx = state.points.length - 1;
+                // If user was in Prior mode and clicked to add a point, automatically advance mode UI
+                if (state.mode === 'prior') {
+                    syncUIWithCurrentState();
+                }
+                recomputeAndDraw();
+            }
+        });
+
+        window.addEventListener('mousemove', (evt) => {
+            const rect = gpCanvas.getBoundingClientRect();
+            const inside = (
+                evt.clientX >= rect.left &&
+                evt.clientX <= rect.right &&
+                evt.clientY >= rect.top &&
+                evt.clientY <= rect.bottom
+            );
+
+            if (!inside && state.draggingPointIdx === -1) {
+                if (state.hoverX !== null) {
+                    state.hoverX = null;
+                    state.hoveredPointIdx = -1;
+                    drawMainPlot();
+                }
+                return;
+            }
+
+            const px = evt.clientX - rect.left;
+            const py = evt.clientY - rect.top;
+            const width = rect.width;
+            const height = rect.height;
+
+            state.hoverX = pxToX(px, width);
+            state.hoverY = pxToY(py, height);
+
+            if (state.draggingPointIdx !== -1) {
+                state.points[state.draggingPointIdx].x = state.hoverX;
+                state.points[state.draggingPointIdx].y = state.hoverY;
+                gpCanvas.style.cursor = 'grabbing';
+                recomputeAndDraw();
+            } else {
+                state.hoveredPointIdx = findNearestPointIndex(px, py, width, height);
+                gpCanvas.style.cursor = state.hoveredPointIdx !== -1 ? 'grab' : 'crosshair';
+                updateHoverReadout();
+                drawMainPlot();
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (state.draggingPointIdx !== -1) {
+                state.draggingPointIdx = -1;
+                gpCanvas.style.cursor = 'crosshair';
+            }
+        });
+
+        // Right-click or Double-click to remove a data point
+        gpCanvas.addEventListener('contextmenu', (evt) => {
+            evt.preventDefault();
+            const { px, py, width, height } = getCanvasMousePos(evt);
+            const hitIdx = findNearestPointIndex(px, py, width, height, 18);
+            if (hitIdx !== -1) {
+                state.points.splice(hitIdx, 1);
+                state.hoveredPointIdx = -1;
+                recomputeAndDraw();
+            }
+        });
+
+        gpCanvas.addEventListener('dblclick', (evt) => {
+            const { px, py, width, height } = getCanvasMousePos(evt);
+            const hitIdx = findNearestPointIndex(px, py, width, height, 18);
+            if (hitIdx !== -1) {
+                state.points.splice(hitIdx, 1);
+                state.hoveredPointIdx = -1;
+                recomputeAndDraw();
+            }
+        });
+
+        // Touch support for mobile/tablet
+        gpCanvas.addEventListener('touchstart', (evt) => {
+            if (evt.touches.length !== 1) return;
+            evt.preventDefault();
+            const { px, py, width, height } = getCanvasMousePos(evt);
+            const hitIdx = findNearestPointIndex(px, py, width, height, 22);
+            if (hitIdx !== -1) {
+                state.draggingPointIdx = hitIdx;
+            } else {
+                state.points.push({ x: pxToX(px, width), y: pxToY(py, height) });
+                state.draggingPointIdx = state.points.length - 1;
+                recomputeAndDraw();
+            }
+        }, { passive: false });
+
+        gpCanvas.addEventListener('touchmove', (evt) => {
+            if (state.draggingPointIdx === -1) return;
+            evt.preventDefault();
+            const { px, py, width, height } = getCanvasMousePos(evt);
+            state.points[state.draggingPointIdx].x = pxToX(px, width);
+            state.points[state.draggingPointIdx].y = pxToY(py, height);
+            state.hoverX = state.points[state.draggingPointIdx].x;
+            recomputeAndDraw();
+        }, { passive: false });
+
+        gpCanvas.addEventListener('touchend', () => {
+            state.draggingPointIdx = -1;
+        });
+
+        function updateHoverReadout() {
+            if (state.hoverX === null) return;
+            const { mu, std } = evaluateGPAtPoint(state.hoverX);
+            document.getElementById('readoutX').textContent = `x* = ${state.hoverX.toFixed(2)}`;
+            document.getElementById('readoutMean').textContent = `μ(x*) = ${mu.toFixed(2)}`;
+            document.getElementById('readoutStd').textContent = `±1.96σ_f = ±${(1.96 * std).toFixed(2)}`;
+
+            const predYEl = document.getElementById('readoutPredY');
+            if (state.noiseStd > 0.001) {
+                predYEl.classList.remove('hidden');
+                const totalStd = Math.sqrt(std * std + state.noiseStd * state.noiseStd);
+                document.getElementById('readoutPredYVal').textContent = `±1.96σ_y = ±${(1.96 * totalStd).toFixed(2)}`;
+            } else {
+                predYEl.classList.add('hidden');
+            }
+        }
+
+        /***********************************************************************
+         * 5. PEDAGOGICAL MODES, CONTROLS & GUIDED SCENARIOS
+         ***********************************************************************/
+        function setExplorationMode(mode) {
+            if (mode === 'prior') {
+                if (state.points.length > 0) {
+                    state.savedPointsBackup = state.points.map(p => ({ ...p }));
+                }
+                state.points = [];
+                state.mode = 'prior';
+            } else if (mode === 'noisefree') {
+                if (state.points.length === 0) {
+                    state.points = state.savedPointsBackup.length > 0
+                        ? state.savedPointsBackup.map(p => ({ ...p }))
+                        : [{ x: -2.6, y: -1.1 }, { x: -0.4, y: 1.35 }, { x: 2.3, y: -0.65 }];
+                }
+                if (state.noiseStd > 0) state.lastNoisyValue = state.noiseStd;
+                state.noiseStd = 0.0;
+                state.mode = 'noisefree';
+            } else if (mode === 'noisy') {
+                if (state.points.length === 0) {
+                    state.points = state.savedPointsBackup.length > 0
+                        ? state.savedPointsBackup.map(p => ({ ...p }))
+                        : [{ x: -2.6, y: -1.1 }, { x: -0.4, y: 1.35 }, { x: 2.3, y: -0.65 }];
+                }
+                if (state.noiseStd < 0.02) {
+                    state.noiseStd = state.lastNoisyValue || 0.35;
+                }
+                state.mode = 'noisy';
+            }
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function triggerComparisonToggle() {
+            if (state.noiseStd === 0) {
+                setExplorationMode('noisy');
+            } else {
+                setExplorationMode('noisefree');
+            }
+        }
+
+        function setNoisePreset(val) {
+            if (val === 0) {
+                if (state.noiseStd > 0) state.lastNoisyValue = state.noiseStd;
+                state.noiseStd = 0;
+                if (state.points.length > 0) state.mode = 'noisefree';
+            } else {
+                state.noiseStd = state.lastNoisyValue > 0.05 ? state.lastNoisyValue : val;
+                if (state.points.length > 0) state.mode = 'noisy';
+            }
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function onNoiseSliderChange(val) {
+            const num = parseFloat(val);
+            state.noiseStd = num;
+            if (num > 0.01) {
+                state.lastNoisyValue = num;
+                if (state.points.length > 0) state.mode = 'noisy';
+            } else {
+                state.noiseStd = 0;
+                if (state.points.length > 0) state.mode = 'noisefree';
+            }
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function selectKernel(kType) {
+            state.kernelType = kType;
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function onHyperparamChange() {
+            state.lengthscale = parseFloat(document.getElementById('sliderLengthscale').value);
+            state.signalStd = parseFloat(document.getElementById('sliderSignalStd').value);
+            state.period = parseFloat(document.getElementById('sliderPeriod').value);
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function changeSampleCount(delta) {
+            state.numSamples = Math.max(0, Math.min(MAX_SAMPLES, state.numSamples + delta));
+            document.getElementById('valNumSamples').textContent = state.numSamples;
+            computeSamplePathsFromCholesky();
+            drawMainPlot();
+        }
+
+        function toggleSampleAnimation() {
+            state.animateSamples = !state.animateSamples;
+            const btnText = document.getElementById('animBtnText');
+            const dot = document.getElementById('animDot');
+            if (state.animateSamples) {
+                btnText.textContent = 'Morphing Samples: ON';
+                dot.classList.add('animate-ping');
+            } else {
+                btnText.textContent = 'Morphing Samples: PAUSED';
+                dot.classList.remove('animate-ping');
+            }
+        }
+
+        function resampleRandomSeeds() {
+            initRandomBases();
+            computeSamplePathsFromCholesky();
+            drawMainPlot();
+        }
+
+        function clearAllPoints() {
+            state.points = [];
+            state.mode = 'prior';
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function toggleTrueFunction() {
+            state.showTrueFunc = document.getElementById('chkShowTrueFunc').checked;
+            const leg = document.getElementById('legendTrueFunc');
+            if (state.showTrueFunc) {
+                leg.classList.remove('hidden');
+                leg.classList.add('flex');
+            } else {
+                leg.classList.add('hidden');
+                leg.classList.remove('flex');
+            }
+            drawMainPlot();
+        }
+
+        function sampleFromTrueFunction() {
+            // Enable ground truth curve visibility so user sees where points came from
+            state.showTrueFunc = true;
+            document.getElementById('chkShowTrueFunc').checked = true;
+            toggleTrueFunction();
+
+            const pts = [];
+            const numPts = 6;
+            for (let i = 0; i < numPts; i++) {
+                const x = -4.0 + (8.0 * (i + 0.15 + 0.7 * Math.random())) / numPts;
+                const cleanY = trueFunction(x);
+                const noisyY = cleanY + state.noiseStd * randn();
+                pts.push({
+                    x: Math.max(-4.8, Math.min(4.8, x)),
+                    y: Math.max(-2.8, Math.min(2.8, noisyY))
+                });
+            }
+            state.points = pts;
+            state.mode = state.noiseStd > 0 ? 'noisy' : 'noisefree';
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        function requestRedraw() {
+            state.showKernelSlice = document.getElementById('chkShowKernelSlice').checked;
+            state.showPredNoiseBand = document.getElementById('chkShowPredNoiseBand').checked;
+            drawMainPlot();
+        }
+
+        /**
+         * 5 Curated Pedagogical Scenarios with Rich Explanations
+         */
+        function runGuidedScenario(lessonNum) {
+            state.activeLesson = lessonNum;
+            const dTitle = document.getElementById('deepDiveTitle');
+            const dBody = document.getElementById('deepDiveBody');
+
+            if (lessonNum === 1) {
+                // Lesson 1: Prior Function Space
+                state.points = [];
+                state.mode = 'prior';
+                state.kernelType = 'rbf';
+                state.lengthscale = 1.20;
+                state.signalStd = 1.00;
+                state.noiseStd = 0.0;
+                dTitle.textContent = 'Lab 1: A Distribution Over Infinite Functions';
+                dBody.innerHTML =
+                    'Before observing any data (<span class="font-mono text-indigo-300">N = 0</span>), the GP Prior mean is <span class="font-mono">μ(x) = 0</span> everywhere and the 95% confidence band has constant width <span class="font-mono">±1.96σ_f</span>. Try switching the kernel between <strong>RBF</strong> (infinitely differentiable), <strong>Matérn 3/2</strong> (rougher, realistic physical paths), and <strong>Periodic</strong> to watch the random functions change character immediately!';
+            } else if (lessonNum === 2) {
+                // Lesson 2: Pinching the Prior (Noise-Free)
+                state.kernelType = 'rbf';
+                state.lengthscale = 1.25;
+                state.signalStd = 1.00;
+                state.noiseStd = 0.0;
+                state.mode = 'noisefree';
+                state.points = [
+                    { x: -2.8, y: -1.1 },
+                    { x: -0.3, y: 1.4 },
+                    { x: 2.5, y: -0.8 }
+                ];
+                dTitle.textContent = 'Lab 2: Noise-Free Observations Pinch the Prior Exactly';
+                dBody.innerHTML =
+                    'With <span class="font-mono text-sky-300">σ_n = 0</span>, we tell the GP that our measurements <span class="font-mono">y_i = f(x_i)</span> are 100% exact. Watch the shaded blue uncertainty band: it pinches completely to zero thickness at each red point, creating "sausage links" of uncertainty in between. Every single animated sample curve is mathematically forced to pass directly through every point!';
+            } else if (lessonNum === 3) {
+                // Lesson 3: Closely-Spaced Noisy Observations
+                state.kernelType = 'rbf';
+                state.lengthscale = 1.35;
+                state.signalStd = 1.00;
+                state.noiseStd = 0.42;
+                state.lastNoisyValue = 0.42;
+                state.mode = 'noisy';
+                state.points = [
+                    { x: -3.2, y: -0.9 },
+                    { x: -1.1, y: 1.45 },
+                    { x: -0.85, y: 0.35 },
+                    { x: 0.9, y: 1.1 },
+                    { x: 1.15, y: -0.2 },
+                    { x: 3.1, y: -1.0 }
+                ];
+                dTitle.textContent = 'Lab 3: How Noisy Observations Prevent Overfitting';
+                dBody.innerHTML =
+                    'Look at the closely spaced pairs near <span class="font-mono">x ≈ -1</span> and <span class="font-mono">x ≈ +1</span> with conflicting <span class="font-mono">y</span> values. With <span class="font-mono text-rose-300">σ_n = 0.42</span>, the GP recognizes this disagreement as observation noise and glides smoothly between them! <strong>Try clicking "Noise-Free (0)" on the right</strong> to see how forcing exact interpolation through noisy data causes catastrophic wild oscillations.';
+            } else if (lessonNum === 4) {
+                // Lesson 4: Short Lengthscale vs Long Lengthscale
+                state.kernelType = 'rbf';
+                state.lengthscale = 0.45;
+                state.signalStd = 1.00;
+                state.noiseStd = 0.0;
+                state.mode = 'noisefree';
+                state.points = [
+                    { x: -3.0, y: 1.2 },
+                    { x: 0.0, y: -1.3 },
+                    { x: 3.0, y: 1.0 }
+                ];
+                dTitle.textContent = 'Lab 4: Lengthscale (l) Controls Correlation Distance & Uncertainty Growth';
+                dBody.innerHTML =
+                    'We set the lengthscale small (<span class="font-mono text-amber-300">l = 0.45</span>). Because points more than <span class="font-mono">~2l</span> apart become nearly uncorrelated, the GP uncertainty balloons rapidly back to the full prior width right between the observations! Now slowly drag the <strong>Lengthscale slider</strong> up to <span class="font-mono">2.50</span> and watch the uncertainty bridges tighten across the whole domain.';
+            } else if (lessonNum === 5) {
+                // Lesson 5: Extrapolation & Reverting to the Prior
+                state.kernelType = 'rbf';
+                state.lengthscale = 1.00;
+                state.signalStd = 1.00;
+                state.noiseStd = 0.12;
+                state.lastNoisyValue = 0.12;
+                state.mode = 'noisy';
+                state.points = [
+                    { x: -4.2, y: -0.8 },
+                    { x: -3.3, y: 0.5 },
+                    { x: -2.4, y: 1.4 },
+                    { x: -1.5, y: 0.6 },
+                    { x: -0.6, y: -0.7 }
+                ];
+                dTitle.textContent = 'Lab 5: Epistemic Uncertainty — Knowing What You Don\'t Know';
+                dBody.innerHTML =
+                    'All observations are clustered on the left (<span class="font-mono">x &lt; 0</span>). Where data is dense, the 95% confidence interval is tight. As you move into the unobserved region (<span class="font-mono">x &gt; 1</span>), <span class="font-mono">k(x*, X) → 0</span>, so the GP mean smoothly returns to the prior mean (<span class="font-mono">0</span>) and the uncertainty expands back to the prior variance. Unlike standard neural networks, a GP automatically quantifies its ignorance far from training data!';
+            }
+
+            recomputeAndDraw();
+            syncUIWithCurrentState();
+        }
+
+        /**
+         * Synchronizes all DOM sliders, badges, tabs, and educational banners with `state`
+         */
+        function syncUIWithCurrentState() {
+            // 1. Sync Sliders
+            document.getElementById('sliderNoise').value = state.noiseStd;
+            document.getElementById('sliderLengthscale').value = state.lengthscale;
+            document.getElementById('sliderSignalStd').value = state.signalStd;
+            document.getElementById('sliderPeriod').value = state.period;
+
+            document.getElementById('valLengthscale').textContent = state.lengthscale.toFixed(2);
+            document.getElementById('valSignalStd').textContent = state.signalStd.toFixed(2);
+            document.getElementById('valPeriod').textContent = state.period.toFixed(2);
+            document.getElementById('pointCountBadge').textContent = `N = ${state.points.length} pt${state.points.length === 1 ? '' : 's'}`;
+
+            // Show/hide Periodic slider
+            const periodContainer = document.getElementById('periodContainer');
+            if (state.kernelType === 'periodic') {
+                periodContainer.classList.remove('hidden');
+            } else {
+                periodContainer.classList.add('hidden');
+            }
+
+            // 2. Sync Kernel Buttons & Formula
+            const kernels = ['rbf', 'matern32', 'periodic', 'linear'];
+            kernels.forEach(k => {
+                const btn = document.getElementById('kernBtn_' + k);
+                if (state.kernelType === k) {
+                    btn.className = 'kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left bg-sky-500/15 border-sky-500 text-white shadow-sm';
+                } else {
+                    btn.className = 'kernel-btn px-3 py-2 rounded-xl text-xs font-semibold border transition text-left bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700';
+                }
+            });
+
+            const formulas = {
+                rbf: "k(x,x') = σ_f² exp( -||x - x'||² / 2l² )",
+                matern32: "k(x,x') = σ_f² (1 + √3d/l) exp( -√3d/l )",
+                periodic: "k(x,x') = σ_f² exp( -2 sin²(πd/p) / l² )",
+                linear: "k(x,x') = σ_f² (c + x · x' / l²)"
+            };
+            document.getElementById('kernelFormulaBox').textContent = formulas[state.kernelType];
+
+            // 3. Determine Effective Mode
+            if (state.points.length === 0) {
+                state.mode = 'prior';
+            } else if (state.noiseStd === 0) {
+                state.mode = 'noisefree';
+            } else {
+                state.mode = 'noisy';
+            }
+
+            // 4. Sync Top Pedagogical Mode Tabs
+            const tabPrior = document.getElementById('tabPrior');
+            const tabNoiseFree = document.getElementById('tabNoiseFree');
+            const tabNoisy = document.getElementById('tabNoisy');
+
+            const baseTab = 'mode-tab flex-1 sm:flex-initial flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ';
+            tabPrior.className = baseTab + (state.mode === 'prior'
+                ? 'bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 shadow'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900');
+            tabNoiseFree.className = baseTab + (state.mode === 'noisefree'
+                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40 shadow'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900');
+            tabNoisy.className = baseTab + (state.mode === 'noisy'
+                ? 'bg-rose-500/20 text-rose-200 border border-rose-500/40 shadow'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900');
+
+            // 5. Sync Noise Card & Mode Banner
+            const valNoiseEl = document.getElementById('valNoise');
+            const btnNoiseZero = document.getElementById('btnNoiseZero');
+            const btnNoisePos = document.getElementById('btnNoisePositive');
+            const noiseStatusBox = document.getElementById('noiseStatusBox');
+            const noiseStatusText = document.getElementById('noiseStatusText');
+            const noiseControlCard = document.getElementById('noiseControlCard');
+            const pinchIndicator = document.getElementById('pinchStatusIndicator');
+
+            if (state.noiseStd === 0) {
+                valNoiseEl.textContent = '0.000 (Exact Interpolation)';
+                valNoiseEl.className = 'font-mono font-semibold text-sky-300';
+                btnNoiseZero.className = 'px-2.5 py-1 rounded-md transition bg-sky-500 text-slate-950 font-bold';
+                btnNoisePos.className = 'px-2.5 py-1 rounded-md transition text-slate-400 hover:text-white';
+                noiseControlCard.className = 'rounded-2xl bg-slate-900 border-2 border-sky-500/40 p-4 sm:p-5 shadow-xl transition-all duration-300';
+                noiseStatusBox.className = 'mt-3.5 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs text-sky-200 flex items-start gap-2.5';
+                noiseStatusText.innerHTML = '<strong>Noise-Free (<span class="font-mono">σ_n = 0</span>):</strong> Observations are treated as exact truth <span class="font-mono">y_i = f(x_i)</span>. Uncertainty pinches completely to zero at every point.';
+                pinchIndicator.textContent = 'Exact Interpolation: σ(x_i) = 0.000';
+                pinchIndicator.className = 'bg-slate-900/85 backdrop-blur px-2.5 py-1 rounded-lg border border-sky-500/30 font-mono text-sky-300';
+                document.getElementById('quickToggleText').textContent = `Compare with Noisy (σ_n = ${(state.lastNoisyValue || 0.35).toFixed(2)})`;
+            } else {
+                valNoiseEl.textContent = `${state.noiseStd.toFixed(2)} (Var σ_n² = ${(state.noiseStd * state.noiseStd).toFixed(3)})`;
+                valNoiseEl.className = 'font-mono font-semibold text-rose-400';
+                btnNoiseZero.className = 'px-2.5 py-1 rounded-md transition text-slate-400 hover:text-white';
+                btnNoisePos.className = 'px-2.5 py-1 rounded-md transition bg-rose-500 text-white font-bold';
+                noiseControlCard.className = 'rounded-2xl bg-slate-900 border-2 border-rose-500/40 p-4 sm:p-5 shadow-xl transition-all duration-300';
+                noiseStatusBox.className = 'mt-3.5 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-200 flex items-start gap-2.5';
+                noiseStatusText.innerHTML = `<strong>Noisy Observations (<span class="font-mono">σ_n = ${state.noiseStd.toFixed(2)}</span>):</strong> Points have <span class="font-mono">±${(1.96 * state.noiseStd).toFixed(2)}</span> (95%) error bars. Posterior mean smooths through points without pinning to zero uncertainty.`;
+                pinchIndicator.textContent = `Noisy Regression: σ_n = ${state.noiseStd.toFixed(2)} (Smoothed)`;
+                pinchIndicator.className = 'bg-slate-900/85 backdrop-blur px-2.5 py-1 rounded-lg border border-rose-500/30 font-mono text-rose-300';
+                document.getElementById('quickToggleText').textContent = 'Compare with Noise-Free (σ_n = 0)';
+            }
+
+            // 6. Update Top Pedagogical Banner Content
+            const bannerBadge = document.getElementById('bannerBadge');
+            const bannerEq = document.getElementById('bannerEquation');
+            const bannerTitle = document.getElementById('bannerTitle');
+            const bannerDesc = document.getElementById('bannerDesc');
+
+            if (state.mode === 'prior') {
+                bannerBadge.textContent = 'Mode 1: The GP Prior';
+                bannerBadge.className = 'px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+                bannerEq.textContent = 'f(x) ~ GP(0, k(x, x\'))';
+                bannerTitle.textContent = 'The Gaussian Process Prior: A Probability Distribution Over Functions';
+                bannerDesc.innerHTML = 'Before observing any training data (<span class="font-mono text-indigo-300">N = 0</span>), the GP defines a prior distribution over infinitely many functions. The kernel <span class="font-mono">k(x, x\')</span> controls the smoothness and amplitude of the random sample paths. <strong>Click anywhere on the canvas</strong> to add your first observation and condition the prior!';
+            } else if (state.mode === 'noisefree') {
+                bannerBadge.textContent = 'Mode 2: Exact Interpolation';
+                bannerBadge.className = 'px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-md bg-sky-500/20 text-sky-300 border border-sky-500/30';
+                bannerEq.textContent = 'y_i = f(x_i)   [σ_n = 0]';
+                bannerTitle.textContent = 'Noise-Free Observations: Pinched Uncertainty & Exact Interpolation';
+                bannerDesc.innerHTML = 'When observation noise is zero (<span class="font-mono text-sky-300">σ_n = 0</span>), we condition the GP on exact function values. Notice how the 95% confidence band <strong>pinches completely to zero</strong> at each red point <span class="font-mono">(x_i, y_i)</span>, and every random function sample is pinned strictly through the points!';
+            } else {
+                bannerBadge.textContent = 'Mode 3: Noisy Regression';
+                bannerBadge.className = 'px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30';
+                bannerEq.textContent = `y_i = f(x_i) + ε_i,  ε_i ~ N(0, ${state.noiseStd.toFixed(2)}²)`;
+                bannerTitle.textContent = 'Noisy Observations: Balancing Data Fit vs. Function Smoothness';
+                bannerDesc.innerHTML = `With observation noise <span class="font-mono text-rose-300">σ_n = ${state.noiseStd.toFixed(2)}</span>, each point displays a 95% noise bar (<span class="font-mono">±1.96σ_n</span>). Because the GP knows measurements are corrupted by noise, the posterior mean <span class="font-mono text-sky-300">μ(x)</span> glides smoothly past points rather than overfitting, and uncertainty at <span class="font-mono">x_i</span> remains strictly greater than zero!`;
+            }
+
+            // 7. Highlight Active Guided Lesson Card
+            for (let i = 1; i <= 5; i++) {
+                const card = document.getElementById('lessonBtn' + i);
+                if (i === state.activeLesson) {
+                    card.className = 'lesson-card text-left p-3 rounded-xl border-2 border-sky-500/70 bg-sky-950/25 transition flex flex-col justify-between gap-2 group shadow-md';
+                } else {
+                    card.className = 'lesson-card text-left p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/70 transition flex flex-col justify-between gap-2 group';
+                }
+            }
+            document.getElementById('activeLessonIndicator').textContent = `Lab ${state.activeLesson} of 5 Active`;
+        }
+
+        function recomputeAndDraw() {
+            updateGPPosterior();
+            updateHoverReadout();
+            drawMainPlot();
+            drawCovarianceMatrix();
+        }
+
+        /***********************************************************************
+         * 6. ANIMATION LOOP & INITIALIZATION
+         ***********************************************************************/
+        function animateLoop() {
+            if (state.animateSamples && state.numSamples > 0) {
+                state.animPhase += 0.018;
+                computeSamplePathsFromCholesky();
+                drawMainPlot();
+            }
+            requestAnimationFrame(animateLoop);
+        }
+
+        document.getElementById('btnResetAll').addEventListener('click', () => {
+            runGuidedScenario(2);
+        });
+
+        window.addEventListener('resize', resizeMainCanvas);
+
+        window.onload = function () {
+            resizeMainCanvas();
+            runGuidedScenario(2); // Start in Lab 2 (Noise-Free Pinching the Prior) so user immediately sees GP conditioning
+            animateLoop();
+        };
+    </script>
+</body>
+</html>
